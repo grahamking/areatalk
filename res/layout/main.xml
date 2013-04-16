@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    >
+    <TextView
+        android:id="@+id/content"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:textIsSelectable="true"
+        />
+    <EditText
+        android:id="@+id/input"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:inputType="textAutoCorrect"
+        android:imeOptions="actionSend"
+        android:background="#fff"
+        android:textColor="#000"
+        android:hint="Your message here"
+        android:layout_alignParentBottom="true"
+        />
+</RelativeLayout>
+

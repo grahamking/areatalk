@@ -17,11 +17,11 @@
         android:id="@+id/input"
         android:layout_width="fill_parent"
         android:layout_height="wrap_content"
-        android:inputType="textAutoCorrect"
         android:imeOptions="actionSend"
         android:background="#fff"
         android:textColor="#000"
         android:hint="Your message here"
+        android:singleLine="true"
         android:layout_alignParentBottom="true"
         />
 

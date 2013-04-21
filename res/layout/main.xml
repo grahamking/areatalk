@@ -20,7 +20,7 @@
         android:imeOptions="actionSend"
         android:background="#fff"
         android:textColor="#000"
-        android:hint="Your message here"
+        android:hint="@string/inputPrompt"
         android:singleLine="true"
         android:layout_alignParentBottom="true"
         />

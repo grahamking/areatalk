@@ -14,13 +14,17 @@ import android.os.Bundle;
 import android.os.AsyncTask;
 import android.widget.TextView;
 import android.widget.EditText;
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.inputmethod.InputMethodManager;
 import android.text.InputType;
-import android.content.Context;
+import android.text.SpannableString;
+import android.text.style.StyleSpan;
+import android.graphics.Typeface;
 
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements NickDialog.Listener {
 
     private static final String TAG = MainActivity.class.getSimpleName();
 
@@ -30,29 +34,28 @@ public class MainActivity extends Activity {
     TextView content;
     EditText input;
     TextView.OnEditorActionListener sendListener;
+    String nick;
 
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState)
     {
         super.onCreate(savedInstanceState);
-        this.initSender();
-
         setContentView(R.layout.main);
 
-        this.content = (TextView) findViewById(R.id.content);
-        new Receiver().execute();
+        this.startReceiver();
+        this.startListener();
 
-        this.sendListener = new SendListener();
-        this.input = (EditText) findViewById(R.id.input);
-        this.input.setInputType(
-                InputType.TYPE_CLASS_TEXT |
-                InputType.TYPE_TEXT_FLAG_AUTO_CORRECT |
-                InputType.TYPE_TEXT_VARIATION_SHORT_MESSAGE);
-        this.input.setOnEditorActionListener(this.sendListener);
+        this.loadNick();
+        if (this.nick == null) {
+            this.promptNick();
+        }
     }
 
-    void initSender() {
+    /** Start the thread which listens for socket messages and displays them. */
+    void startReceiver() {
+
+        this.content = (TextView) findViewById(R.id.content);
 
         try {
             this.sock = new DatagramSocket();
@@ -67,6 +70,42 @@ public class MainActivity extends Activity {
 
         this.packet.setAddress(getBroadcast());
         this.packet.setPort(5311);
+
+        new Receiver().execute();
+    }
+
+    /** Initialize the part which responds to user input, and sends to socket */
+    void startListener() {
+
+        this.sendListener = new SendListener();
+        this.input = (EditText) findViewById(R.id.input);
+        this.input.setInputType(
+                InputType.TYPE_CLASS_TEXT |
+                InputType.TYPE_TEXT_FLAG_AUTO_CORRECT |
+                InputType.TYPE_TEXT_VARIATION_SHORT_MESSAGE);
+        this.input.setOnEditorActionListener(this.sendListener);
+    }
+
+    /** Called by NickDialog when a nick is set */
+    public void onNick(String nick) {
+        this.nick = nick;
+        Log.d(TAG, "Nick: " + this.nick);
+
+        SharedPreferences prefs = this.getSharedPreferences("areatalk", 0);
+        SharedPreferences.Editor editor = prefs.edit();
+        editor.putString("nick", nick);
+        editor.commit();
+    }
+
+    /** Load nick from shared preferences into this.nick */
+    void loadNick() {
+        SharedPreferences prefs = getSharedPreferences("areatalk", 0);
+        this.nick = prefs.getString("nick", null);
+    }
+
+    /** Prompt user for a nickname, save it to shared prefs. */
+    void promptNick() {
+        new NickDialog().show(getFragmentManager(), "NICK");
     }
 
     InetAddress getBroadcast() {
@@ -128,10 +167,11 @@ public class MainActivity extends Activity {
             // Use THREAD_POOL_EXECUTOR so runs in parallel with Receiver
             new SendTask().executeOnExecutor(
                     AsyncTask.THREAD_POOL_EXECUTOR,
-                    msg.toString());
+                    MainActivity.this.nick +": " + msg.toString());
 
             view.setText("");
-            InputMethodManager imm = (InputMethodManager) MainActivity.this.getSystemService(Context.INPUT_METHOD_SERVICE);
+            InputMethodManager imm = (InputMethodManager) MainActivity.this.
+                getSystemService(Context.INPUT_METHOD_SERVICE);
             imm.hideSoftInputFromWindow(MainActivity.this.input.getWindowToken(), 0);
 
             return true;
@@ -188,8 +228,19 @@ public class MainActivity extends Activity {
         }
 
         protected void onProgressUpdate(String... msgs) {
+
+            TextView content = MainActivity.this.content;
+
             for (String m : msgs) {
-                MainActivity.this.content.append(m + "\n");
+                String[] parts = m.split(":", 2);
+
+                String nick = parts[0];
+                SpannableString span = new SpannableString(nick);
+                span.setSpan(new StyleSpan(Typeface.BOLD), 0, span.length(), 0);
+                content.append(span);
+
+                String message = parts[1];
+                content.append(" " + message + "\n");
             }
         }
     }

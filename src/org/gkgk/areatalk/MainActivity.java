@@ -7,6 +7,8 @@ import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.InterfaceAddress;
 import java.util.Enumeration;
+import java.util.Set;
+import java.util.TreeSet;
 import java.io.IOException;
 
 import android.app.Activity;
@@ -32,9 +34,12 @@ public class MainActivity extends Activity implements NickDialog.Listener {
     DatagramPacket packet;
 
     TextView content;
+    TextView userList;
     EditText input;
+
     TextView.OnEditorActionListener sendListener;
     String nick;
+    Set<String> users;
 
     /** Called when the activity is first created. */
     @Override
@@ -43,12 +48,17 @@ public class MainActivity extends Activity implements NickDialog.Listener {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
 
+        this.users = new TreeSet<String>();
+        this.userList = (TextView) this.findViewById(R.id.users);
+
         this.startReceiver();
         this.startListener();
 
         this.loadNick();
         if (this.nick == null) {
             this.promptNick();
+        } else {
+            this.sendRaw("/ON " + nick);
         }
     }
 
@@ -95,6 +105,8 @@ public class MainActivity extends Activity implements NickDialog.Listener {
         SharedPreferences.Editor editor = prefs.edit();
         editor.putString("nick", nick);
         editor.commit();
+
+        this.sendRaw("/ON " + nick);
     }
 
     /** Load nick from shared preferences into this.nick */
@@ -106,6 +118,63 @@ public class MainActivity extends Activity implements NickDialog.Listener {
     /** Prompt user for a nickname, save it to shared prefs. */
     void promptNick() {
         new NickDialog().show(getFragmentManager(), "NICK");
+    }
+
+    /** Send a message down the socket, with no extra formatting. */
+    void sendRaw(String msg) {
+        new SendTask().executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, msg);
+    }
+
+    /** A new user has joined the chat */
+    void addUser(String nick) {
+        this.sendRaw("/NICK "+ this.nick);
+        this.users.add(nick);
+        this.displayUsers();
+    }
+
+    /** A user is still in the chat */
+    void updateUser(String nick) {
+        this.users.add(nick);
+        this.displayUsers();
+    }
+
+    /** Display a regular message */
+    void display(String nick, String message) {
+
+        nick = this.lpad(nick, 15);
+        SpannableString span = new SpannableString(nick);
+        span.setSpan(new StyleSpan(Typeface.BOLD), 0, span.length(), 0);
+        this.content.append(span);
+
+        this.content.append(" " + message + "\n");
+    }
+
+    /** Refresh the display of active users. */
+    void displayUsers() {
+
+        StringBuilder u = new StringBuilder(this.users.size());
+        for (String user : this.users) {
+            u.append(user);
+            u.append(", ");
+        }
+        u.delete(u.length()-2, u.length()); // Remove last ", "
+        this.userList.setText("Talking now: " + u.toString());
+    }
+
+    /** Left-pad a string with spaces */
+    String lpad(String msg, int len) {
+
+        if (msg.length() >= len) {
+            return msg;
+        }
+
+        int needed = len - msg.length();
+        StringBuilder result = new StringBuilder();
+        while (needed-- > 0) {
+            result.append(" ");
+        }
+        result.append(msg);
+        return result.toString();
     }
 
     InetAddress getBroadcast() {
@@ -229,20 +298,38 @@ public class MainActivity extends Activity implements NickDialog.Listener {
 
         protected void onProgressUpdate(String... msgs) {
 
-            TextView content = MainActivity.this.content;
-
             for (String m : msgs) {
-                String[] parts = m.split(":", 2);
-
-                String nick = parts[0];
-                SpannableString span = new SpannableString(nick);
-                span.setSpan(new StyleSpan(Typeface.BOLD), 0, span.length(), 0);
-                content.append(span);
-
-                String message = parts[1];
-                content.append(" " + message + "\n");
+                if (m.startsWith("/")) {
+                    actSysMsg(m);
+                } else if (m.contains(": ")) {
+                    actUserMsg(m);
+                } else {
+                    Log.d(TAG, "Unknown message: " + m);
+                }
             }
         }
+
+        /** Regular message from a user - split off nick and display */
+        void actUserMsg(String m) {
+
+            TextView content = MainActivity.this.content;
+            String[] parts = m.split(":", 2);
+            MainActivity.this.display(parts[0], parts[1]);
+        }
+
+        /** System message, not intended for display */
+        void actSysMsg(String m) {
+
+            if (m.startsWith("/ON ")) {
+                String joined = m.substring(3);
+                MainActivity.this.addUser(joined);
+
+            } else if (m.startsWith("/NICK ")) {
+                String current = m.substring(5);
+                MainActivity.this.updateUser(current);
+            }
+        }
+
     }
 }
 

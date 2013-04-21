@@ -6,11 +6,20 @@
     >
 
     <TextView
+        android:id="@+id/users"
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:textIsSelectable="true"
+        android:textColor="#009ACD"
+        android:layout_alignParentTop="true"
+        />
+
+    <TextView
         android:id="@+id/content"
         android:layout_width="fill_parent"
         android:layout_height="wrap_content"
         android:textIsSelectable="true"
-        android:layout_alignParentTop="true"
+        android:layout_below="@id/users"
         />
 
     <EditText
@@ -23,6 +32,7 @@
         android:hint="@string/inputPrompt"
         android:singleLine="true"
         android:layout_alignParentBottom="true"
+        android:padding="10dp"
         />
 
 </RelativeLayout>

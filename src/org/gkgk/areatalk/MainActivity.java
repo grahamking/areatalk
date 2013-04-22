@@ -18,6 +18,9 @@ import android.widget.TextView;
 import android.widget.EditText;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.BroadcastReceiver;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.inputmethod.InputMethodManager;
@@ -25,10 +28,14 @@ import android.text.InputType;
 import android.text.SpannableString;
 import android.text.style.StyleSpan;
 import android.graphics.Typeface;
+import android.net.wifi.WifiManager;
+import android.net.wifi.WifiInfo;
 
 public class MainActivity extends Activity implements NickDialog.Listener {
 
     private static final String TAG = MainActivity.class.getSimpleName();
+
+    public static final String MESSAGE_RECEIVED = "org.gkgk.areatank.MESSAGE_RECEIVED";
 
     DatagramSocket sock;
     DatagramPacket packet;
@@ -41,6 +48,8 @@ public class MainActivity extends Activity implements NickDialog.Listener {
     String nick;
     Set<String> users;
 
+    MainActivity.Receiver messageReceiver;
+
     /** Called when the activity is first created. */
     @Override
     public void onCreate(Bundle savedInstanceState)
@@ -48,24 +57,71 @@ public class MainActivity extends Activity implements NickDialog.Listener {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.main);
 
+        this.content = (TextView) findViewById(R.id.content);
+
         this.users = new TreeSet<String>();
         this.userList = (TextView) this.findViewById(R.id.users);
 
-        this.startReceiver();
-        this.startListener();
+        this.messageReceiver = new MainActivity.Receiver();
+        startService(new Intent(this, ReceiveService.class));
 
-        this.loadNick();
+        openSendSocket();
+        startSendListener();
+
+        loadNick();
         if (this.nick == null) {
-            this.promptNick();
+            promptNick();
         } else {
-            this.sendRaw("/ON " + nick);
+            sendRaw("/ON " + nick);
         }
     }
 
-    /** Start the thread which listens for socket messages and displays them. */
-    void startReceiver() {
+    @Override
+    public void onResume() {
+        super.onResume();
 
-        this.content = (TextView) findViewById(R.id.content);
+        setTitle("Area Talk: " + getWifiName());
+
+        registerReceiver(
+                this.messageReceiver,
+                new IntentFilter(MainActivity.MESSAGE_RECEIVED));
+
+        sendRaw("/NICK " + this.nick);
+        addUser(this.nick);
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        unregisterReceiver(this.messageReceiver);
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        sendRaw("/OFF " + nick);
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        stopService(new Intent(this, ReceiveService.class));
+    }
+
+    /** The name of the Wifi network we're connected too, which is also
+     * the name of the chatroom */
+    String getWifiName() {
+        WifiManager wifi = (WifiManager) this.getSystemService(Context.WIFI_SERVICE);
+        if (!wifi.isWifiEnabled()) {
+            return null;
+        }
+
+        WifiInfo winfo = wifi.getConnectionInfo();
+        return winfo.getSSID();
+    }
+
+    /** Start the thread which listens for socket messages and displays them. */
+    void openSendSocket() {
 
         try {
             this.sock = new DatagramSocket();
@@ -80,12 +136,10 @@ public class MainActivity extends Activity implements NickDialog.Listener {
 
         this.packet.setAddress(getBroadcast());
         this.packet.setPort(5311);
-
-        new Receiver().execute();
     }
 
     /** Initialize the part which responds to user input, and sends to socket */
-    void startListener() {
+    void startSendListener() {
 
         this.sendListener = new SendListener();
         this.input = (EditText) findViewById(R.id.input);
@@ -130,12 +184,20 @@ public class MainActivity extends Activity implements NickDialog.Listener {
         this.sendRaw("/NICK "+ this.nick);
         this.users.add(nick);
         this.displayUsers();
+        this.displaySys(nick +" enters");
     }
 
     /** A user is still in the chat */
     void updateUser(String nick) {
         this.users.add(nick);
         this.displayUsers();
+    }
+
+    /** A user has left the chat */
+    void removeUser(String nick) {
+        this.users.remove(nick);
+        this.displayUsers();
+        this.displaySys(nick +" has left");
     }
 
     /** Display a regular message */
@@ -149,8 +211,20 @@ public class MainActivity extends Activity implements NickDialog.Listener {
         this.content.append(" " + message + "\n");
     }
 
+    /** Display a system message */
+    void displaySys(String message) {
+        SpannableString span = new SpannableString(message + "\n");
+        span.setSpan(new StyleSpan(Typeface.ITALIC), 0, span.length(), 0);
+        this.content.append(span);
+    }
+
     /** Refresh the display of active users. */
     void displayUsers() {
+
+        if (this.users.size() == 0) {
+            // Should never happen, because we're always here
+            return;
+        }
 
         StringBuilder u = new StringBuilder(this.users.size());
         for (String user : this.users) {
@@ -266,46 +340,20 @@ public class MainActivity extends Activity implements NickDialog.Listener {
         }
     }
 
-    class Receiver extends AsyncTask<String, String, String> {
+    /** Receive incoming messages from ReceiveService */
+    class Receiver extends BroadcastReceiver {
 
-        protected String doInBackground(String... args) {
+        @Override
+        public void onReceive(Context context, Intent intent) {
 
-            DatagramSocket sock = null;
-            try {
-                sock = new DatagramSocket(5311);
-            }
-            catch (SocketException exc) {
-                Log.e(TAG, "SocketException creating DatagramSocket", exc);
-            }
+            String m = intent.getStringExtra("msg");
 
-            byte[] buf = new byte[256];
-            DatagramPacket packet = new DatagramPacket(buf, buf.length);
-            while (true) {
-                try {
-                    sock.receive(packet);
-                }
-                catch (IOException exc) {
-                    Log.e(TAG, "IOException receive", exc);
-                }
-                String msg = new String(packet.getData(), 0, packet.getLength());
-                Log.d(TAG, msg);
-                publishProgress(msg);
-
-                packet.setData(new byte[256]);
-            }
-
-        }
-
-        protected void onProgressUpdate(String... msgs) {
-
-            for (String m : msgs) {
-                if (m.startsWith("/")) {
-                    actSysMsg(m);
-                } else if (m.contains(": ")) {
-                    actUserMsg(m);
-                } else {
-                    Log.d(TAG, "Unknown message: " + m);
-                }
+            if (m.startsWith("/")) {
+                actSysMsg(m);
+            } else if (m.contains(": ")) {
+                actUserMsg(m);
+            } else {
+                Log.d(TAG, "Unknown message: " + m);
             }
         }
 
@@ -323,6 +371,10 @@ public class MainActivity extends Activity implements NickDialog.Listener {
             if (m.startsWith("/ON ")) {
                 String joined = m.substring(3);
                 MainActivity.this.addUser(joined);
+
+            } else if (m.startsWith("/OFF ")) {
+                String current = m.substring(4);
+                MainActivity.this.removeUser(current);
 
             } else if (m.startsWith("/NICK ")) {
                 String current = m.substring(5);
